@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trombone Note Finder</title>
+<meta name="description" content="Play your trombone and see which note you're playing, how in tune it is, and which slide position it is.">
+<style>
+  :root {
+    --bg: #14100c;
+    --panel: #1d1712;
+    --panel-2: #261e17;
+    --line: #3a2f24;
+    --ink: #f4ead8;
+    --muted: #9d8f78;
+    --brass: #dba843;
+    --brass-dim: #7a5d22;
+    --good: #84d68f;
+    --warn: #ec7f5f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #2b2015 0%, transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: ui-rounded, "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px 40px;
+  }
+  main { width: 100%; max-width: 640px; }
+  header { text-align: center; margin-bottom: 20px; }
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    font-size: clamp(1.6rem, 5vw, 2.2rem);
+    letter-spacing: .02em;
+    margin: 0 0 4px;
+    color: var(--brass);
+  }
+  header p { margin: 0; color: var(--muted); font-size: .95rem; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 22px 20px;
+    margin-bottom: 14px;
+  }
+
+  /* Note readout */
+  .readout { text-align: center; }
+  .note {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(5rem, 22vw, 8rem);
+    line-height: 1;
+    font-weight: 700;
+    min-height: 1em;
+    transition: opacity .2s, color .2s;
+  }
+  .note .oct { font-size: .35em; font-weight: 400; color: var(--muted); margin-left: .05em; }
+  .readout.idle .note { opacity: .25; }
+  .sub { color: var(--muted); font-size: .95rem; margin-top: 6px; min-height: 1.3em; }
+  .sub b { color: var(--ink); font-weight: 600; }
+
+  /* Tuner meter */
+  .meter {
+    position: relative;
+    height: 44px;
+    margin: 22px 6px 6px;
+  }
+  .meter .track {
+    position: absolute; left: 0; right: 0; top: 18px; height: 8px;
+    border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line);
+  }
+  .meter .zone {
+    position: absolute; top: 18px; height: 8px; left: 40%; width: 20%;
+    background: rgba(132, 214, 143, .22); border-radius: 2px;
+  }
+  .meter .tick { position: absolute; top: 10px; width: 1px; height: 24px; background: var(--line); }
+  .meter .tick.c { left: 50%; background: var(--muted); }
+  .meter .needle {
+    position: absolute; top: 4px; width: 4px; height: 36px; margin-left: -2px;
+    border-radius: 2px; background: var(--brass);
+    left: 50%;
+    transition: left .08s linear, background .15s, opacity .2s;
+  }
+  .meter .lbl { position: absolute; top: 34px; font-size: .72rem; color: var(--muted); transform: translateX(-50%); }
+  .readout.idle .needle { opacity: .2; }
+  .needle.good { background: var(--good); }
+  .needle.off { background: var(--warn); }
+
+  /* Slide positions */
+  h2 {
+    font-size: .8rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--muted); margin: 0 0 12px;
+  }
+  .slide { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .pos {
+    text-align: center; padding: 14px 0 10px; border-radius: 12px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--muted); font-weight: 600; transition: all .12s;
+  }
+  .pos small { display: block; font-size: .62rem; font-weight: 400; margin-top: 2px; opacity: .8; }
+  .pos.alt { border-color: var(--brass-dim); color: #c9a257; }
+  .pos.main {
+    background: var(--brass); color: #1b1407; border-color: var(--brass);
+    transform: translateY(-2px); box-shadow: 0 6px 18px rgba(219, 168, 67, .25);
+  }
+  .slide-note { color: var(--muted); font-size: .85rem; margin-top: 10px; min-height: 1.2em; }
+
+  canvas#hist { width: 100%; height: 190px; display: block; border-radius: 10px; background: var(--panel-2); }
+
+  /* Controls */
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; }
+  button#toggle {
+    appearance: none; border: 0; cursor: pointer;
+    background: var(--brass); color: #1b1407; font: inherit; font-weight: 700;
+    padding: 14px 30px; border-radius: 999px; font-size: 1.05rem;
+    box-shadow: 0 6px 20px rgba(219, 168, 67, .25);
+    transition: transform .1s, background .2s;
+  }
+  button#toggle:hover { transform: translateY(-1px); }
+  button#toggle.on { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
+  .opt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .9rem; }
+  .opt input[type=number] {
+    width: 4.5em; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit;
+  }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    appearance: none; border: 0; background: var(--panel-2); color: var(--muted);
+    font: inherit; padding: 6px 12px; cursor: pointer;
+  }
+  .seg button.active { background: var(--brass-dim); color: var(--ink); }
+
+  .msg { text-align: center; color: var(--warn); font-size: .9rem; margin-top: 12px; min-height: 1.2em; }
+  footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 18px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Trombone Note Finder</h1>
+    <p>Press start, then play. Everything runs in your browser.</p>
+  </header>
+
+  <section class="card readout idle" id="readout">
+    <div class="note" id="note">–</div>
+    <div class="sub" id="sub">Waiting for a note…</div>
+    <div class="meter" aria-label="Tuning meter">
+      <div class="track"></div>
+      <div class="zone"></div>
+      <div class="tick" style="left:0%"></div>
+      <div class="tick" style="left:25%"></div>
+      <div class="tick c"></div>
+      <div class="tick" style="left:75%"></div>
+      <div class="tick" style="left:100%"></div>
+      <div class="needle" id="needle"></div>
+      <span class="lbl" style="left:0%">♭ 50¢</span>
+      <span class="lbl" style="left:50%">in tune</span>
+      <span class="lbl" style="left:100%">♯ 50¢</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Slide position</h2>
+    <div class="slide" id="slide"></div>
+    <div class="slide-note" id="slideNote"></div>
+  </section>
+
+  <section class="card">
+    <h2>Pitch history</h2>
+    <canvas id="hist"></canvas>
+  </section>
+
+  <section class="card">
+    <div class="controls">
+      <button id="toggle">Start listening</button>
+      <label class="opt">A4 =
+        <input type="number" id="a4" min="415" max="466" step="1" value="440"> Hz
+      </label>
+      <div class="seg" id="acc" role="group" aria-label="Accidental style">
+        <button data-v="flat" class="active">♭</button>
+        <button data-v="sharp">♯</button>
+      </div>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <footer>
+    Shows concert pitch (same as written pitch for trombone).<br>
+    Slide positions are for a standard B♭ tenor trombone without the F-attachment.
+  </footer>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Pitch detection (YIN) ----------
+  // YIN-START
+  function detectPitch(x, sr) {
+    const maxTau = Math.min(Math.floor(sr / 45), (x.length >> 1) - 1);   // lowest ~45 Hz
+    const minTau = Math.max(2, Math.floor(sr / 1200));                   // highest ~1200 Hz
+    const W = x.length - maxTau;
+    const d = new Float32Array(maxTau + 1);
+    for (let tau = 1; tau <= maxTau; tau++) {
+      let s = 0;
+      for (let i = 0; i < W; i++) { const diff = x[i] - x[i + tau]; s += diff * diff; }
+      d[tau] = s;
+    }
+    const cm = new Float32Array(maxTau + 1);
+    cm[0] = 1;
+    let run = 0;
+    for (let tau = 1; tau <= maxTau; tau++) {
+      run += d[tau];
+      cm[tau] = run === 0 ? 1 : (d[tau] * tau) / run;
+    }
+    const TH = 0.15;
+    let tauEst = -1;
+    for (let tau = minTau; tau <= maxTau; tau++) {
+      if (cm[tau] < TH) {
+        while (tau + 1 <= maxTau && cm[tau + 1] < cm[tau]) tau++;
+        tauEst = tau;
+        break;
+      }
+    }
+    if (tauEst === -1) return null;
+    let better = tauEst;
+    if (tauEst > 1 && tauEst < maxTau) {
+      const s0 = cm[tauEst - 1], s1 = cm[tauEst], s2 = cm[tauEst + 1];
+      const denom = 2 * (2 * s1 - s2 - s0);
+      if (denom !== 0) better = tauEst + (s2 - s0) / denom;
+    }
+    return sr / better;
+  }
+  // YIN-END
+
+  // ---------- Music helpers ----------
+  const NAMES = {
+    flat:  ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'],
+    sharp: ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B']
+  };
+  // MIDI notes playable in 1st position on a B♭ trombone (harmonic series)
+  const FIRST_POS = [34, 46, 53, 58, 62, 65, 70, 72, 74, 76, 77, 79];
+  const ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th'];
+
+  let accidental = 'flat';
+  let a4 = 440;
+
+  const freqToMidi = f => 69 + 12 * Math.log2(f / a4);
+  const noteName = m => NAMES[accidental][((m % 12) + 12) % 12];
+  const octave = m => Math.floor(m / 12) - 1;
+
+  function positionsFor(m) {
+    const out = [];
+    for (let p = 1; p <= 7; p++) if (FIRST_POS.includes(m + p - 1)) out.push(p);
+    return out;
+  }
+
+  // ---------- DOM ----------
+  const $ = id => document.getElementById(id);
+  const readout = $('readout'), noteEl = $('note'), subEl = $('sub'), needle = $('needle');
+  const slideEl = $('slide'), slideNote = $('slideNote'), msg = $('msg');
+  const toggle = $('toggle'), a4Input = $('a4'), acc = $('acc'), canvas = $('hist');
+
+  const posEls = [];
+  for (let p = 1; p <= 7; p++) {
+    const el = document.createElement('div');
+    el.className = 'pos';
+    el.innerHTML = p + '<small>' + ORD[p] + '</small>';
+    slideEl.appendChild(el);
+    posEls.push(el);
+  }
+
+  try {
+    const sa = localStorage.getItem('tnf-a4'); if (sa) { a4 = +sa; a4Input.value = a4; }
+    const sacc = localStorage.getItem('tnf-acc'); if (sacc) accidental = sacc;
+  } catch (e) {}
+  acc.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.v === accidental));
+
+  acc.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    accidental = b.dataset.v;
+    acc.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    try { localStorage.setItem('tnf-acc', accidental); } catch (err) {}
+    if (lastMidi != null) showNote(lastFreq);
+  });
+  a4Input.addEventListener('change', () => {
+    const v = Math.min(466, Math.max(415, +a4Input.value || 440));
+    a4 = v; a4Input.value = v;
+    try { localStorage.setItem('tnf-a4', v); } catch (err) {}
+  });
+
+  // ---------- Display ----------
+  let lastMidi = null, lastFreq = 0;
+
+  function showNote(freq) {
+    const mf = freqToMidi(freq);
+    const m = Math.round(mf);
+    const cents = (mf - m) * 100;
+    lastMidi = m; lastFreq = freq;
+
+    noteEl.innerHTML = noteName(m) + '<span class="oct">' + octave(m) + '</span>';
+    const dir = Math.abs(cents) < 3 ? 'in tune' : (cents > 0 ? 'sharp' : 'flat');
+    subEl.innerHTML = '<b>' + freq.toFixed(1) + ' Hz</b> · ' +
+      (Math.abs(cents) < 3 ? 'in tune' : Math.abs(cents).toFixed(0) + '¢ ' + dir);
+
+    const pct = 50 + Math.max(-50, Math.min(50, cents));
+    needle.style.left = pct + '%';
+    needle.className = 'needle ' + (Math.abs(cents) <= 10 ? 'good' : (Math.abs(cents) > 25 ? 'off' : ''));
+
+    const ps = positionsFor(m);
+    posEls.forEach((el, i) => {
+      el.classList.toggle('main', ps.length > 0 && ps[0] === i + 1);
+      el.classList.toggle('alt', ps.length > 1 && ps.slice(1).includes(i + 1));
+    });
+    if (ps.length === 0) {
+      slideNote.textContent = 'This note is outside the normal slide range.';
+    } else if (ps.length === 1) {
+      slideNote.textContent = ORD[ps[0]] + ' position';
+    } else {
+      slideNote.textContent = ORD[ps[0]] + ' position (also ' +
+        ps.slice(1).map(p => ORD[p]).join(', ') + ')';
+    }
+    readout.classList.remove('idle');
+  }
+
+  function showIdle() {
+    readout.classList.add('idle');
+    subEl.textContent = lastMidi == null ? 'Waiting for a note…' : 'Last note shown — play again';
+    posEls.forEach(el => el.classList.remove('main', 'alt'));
+    slideNote.textContent = '';
+  }
+
+  // ---------- Pitch history graph ----------
+  const HIST_LEN = 300;
+  const history = [];
+  let viewCenter = 58;
+  const g = canvas.getContext('2d');
+
+  function drawHistory() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    const vals = history.filter(v => v != null);
+    if (vals.length) {
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      viewCenter += (mean - viewCenter) * 0.05;
+    }
+    const span = 14;
+    const lo = viewCenter - span / 2, hi = viewCenter + span / 2;
+    const yOf = m => h - ((m - lo) / (hi - lo)) * h;
+
+    g.font = '11px system-ui, sans-serif';
+    g.textBaseline = 'middle';
+    for (let m = Math.ceil(lo); m <= Math.floor(hi); m++) {
+      const y = yOf(m);
+      g.strokeStyle = '#3a2f24'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(34, y); g.lineTo(w, y); g.stroke();
+      g.fillStyle = '#9d8f78';
+      g.fillText(noteName(m) + octave(m), 4, y);
+    }
+
+    g.strokeStyle = '#dba843'; g.lineWidth = 2.5; g.lineJoin = 'round'; g.lineCap = 'round';
+    const x0 = 38, xw = w - x0 - 4;
+    let pen = false;
+    g.beginPath();
+    history.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      const x = x0 + (i / (HIST_LEN - 1)) * xw;
+      const y = yOf(v);
+      if (!pen) { g.moveTo(x, y); pen = true; } else g.lineTo(x, y);
+    });
+    g.stroke();
+  }
+
+  // ---------- Audio ----------
+  let ctx = null, analyser = null, stream = null, buf = null, running = false;
+  let lastTick = 0, lastHeard = 0;
+  const recent = [];
+
+  function median(a) {
+    const s = a.slice().sort((x, y) => x - y);
+    return s[s.length >> 1];
+  }
+
+  function loop(t) {
+    if (!running) return;
+    requestAnimationFrame(loop);
+    if (t - lastTick < 33) return;       // ~30 analyses per second
+    lastTick = t;
+
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length);
+
+    let freq = null;
+    if (rms > 0.008) {
+      const f = detectPitch(buf, ctx.sampleRate);
+      if (f && f > 45 && f < 1200) freq = f;
+    }
+
+    if (freq) {
+      recent.push(freq);
+      if (recent.length > 5) recent.shift();
+      lastHeard = t;
+      const f = median(recent);
+      showNote(f);
+      history.push(freqToMidi(f));
+    } else {
+      if (t - lastHeard > 250) { recent.length = 0; showIdle(); }
+      history.push(null);
+    }
+    if (history.length > HIST_LEN) history.shift();
+    drawHistory();
+  }
+
+  async function start() {
+    msg.textContent = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      msg.textContent = 'This browser cannot access a microphone here. Use https:// or localhost.';
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (err) {
+      msg.textContent = err && err.name === 'NotAllowedError'
+        ? 'Microphone permission was blocked. Allow it in your browser and try again.'
+        : 'Could not open the microphone: ' + (err && err.message ? err.message : err);
+      return;
+    }
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0;
+    src.connect(analyser);
+    buf = new Float32Array(analyser.fftSize);
+    running = true;
+    toggle.textContent = 'Stop listening';
+    toggle.classList.add('on');
+    requestAnimationFrame(loop);
+  }
+
+  function stop() {
+    running = false;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (ctx) ctx.close();
+    stream = null; ctx = null; analyser = null;
+    toggle.textContent = 'Start listening';
+    toggle.classList.remove('on');
+    showIdle();
+  }
+
+  toggle.addEventListener('click', () => (running ? stop() : start()));
+  window.addEventListener('resize', drawHistory);
+  drawHistory();
+})();
+</script>
+</body>
+</html>
